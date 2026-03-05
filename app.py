@@ -7,9 +7,18 @@ from tensorflow.keras.models import load_model
 from tensorflow.keras.applications import VGG19
 from tensorflow.keras.applications.vgg19 import preprocess_input
 from tensorflow.keras.models import Model
+import os
+import gdown
 
 st.title("Autistic Children Emotion Recognition")
 st.write("Upload Face Image and Hand Gesture Image to Predict Emotion")
+# Download encoder model
+if not os.path.exists("encoder_model.h5"):
+    gdown.download(
+        "https://drive.google.com/uc?id=1KS1AQeX9w79p8TnZeZAAi6DrAJ3PiKKP",
+        "encoder_model.h5",
+        quiet=False
+    )
 
 # -----------------------------
 # Load models
