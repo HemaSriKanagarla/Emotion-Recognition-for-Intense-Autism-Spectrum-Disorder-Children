@@ -1,95 +1,96 @@
-import os
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-
-from flask import Flask, request, jsonify
+import streamlit as st
 import numpy as np
-import tensorflow as tf
+import cv2
+import joblib
+
 from tensorflow.keras.models import load_model
-from tensorflow.keras.applications.vgg19 import VGG19, preprocess_input
-from tensorflow.keras.preprocessing import image
+from tensorflow.keras.applications import VGG19
+from tensorflow.keras.applications.vgg19 import preprocess_input
 from tensorflow.keras.models import Model
-from PIL import Image
-import gdown
 
-app = Flask(__name__)
+st.title("Autistic Children Emotion Recognition")
+st.write("Upload Face Image and Hand Gesture Image to Predict Emotion")
 
-# -----------------------------------
-# Download models from Google Drive
-# -----------------------------------
-
-if not os.path.exists("encoder_model.h5"):
-    gdown.download(
-        "https://drive.google.com/uc?id=19jL0RvDoXiYkO0eQnWiAFcU5G_vK-NEk",
-        "encoder_model.h5",
-        quiet=False
-    )
-
-if not os.path.exists("classifier_model.h5"):
-    gdown.download(
-        "https://drive.google.com/uc?id=1Rm0PtfvIe0SAonAxjFqFoLir1imE4Dnl",
-        "classifier_model.h5",
-        quiet=False
-    )
-
-if not os.path.exists("class_labels.npy"):
-    gdown.download(
-        "https://drive.google.com/uc?id=1KS1AQeX9w79p8TnZeZAAi6DrAJ3PiKKP",
-        "class_labels.npy",
-        quiet=False
-    )
-
-# -----------------------------------
-# Load Models
-# -----------------------------------
-
-encoder = load_model("encoder_model.h5")
+# -----------------------------
+# Load models
+# -----------------------------
 classifier = load_model("classifier_model.h5")
-class_labels = np.load("class_labels.npy", allow_pickle=True)
+autoencoder = load_model("encoder_model.h5")
+scaler = joblib.load("scaler.pkl")
+emotion_labels = joblib.load("emotion_label.pkl")
 
-# -----------------------------------
-# Load VGG19 Feature Extractor
-# -----------------------------------
+# -----------------------------
+# Load VGG19 feature extractor
+# -----------------------------
+base_model = VGG19(weights='imagenet', include_top=False)
 
-base_model = VGG19(weights='imagenet', include_top=False, input_shape=(224,224,3))
-x = tf.keras.layers.Flatten()(base_model.output)
-vgg_model = Model(inputs=base_model.input, outputs=x)
+vgg_model = Model(
+    inputs=base_model.input,
+    outputs=base_model.output
+)
 
-def extract_features(img):
-    img = img.resize((224,224))
-    img_array = image.img_to_array(img)
-    img_array = np.expand_dims(img_array, axis=0)
-    img_array = preprocess_input(img_array)
-    features = vgg_model.predict(img_array)
+# -----------------------------
+# Upload images
+# -----------------------------
+face_file = st.file_uploader("Upload Face Image", type=["jpg","jpeg","png"])
+hand_file = st.file_uploader("Upload Hand Gesture Image", type=["jpg","jpeg","png"])
+
+
+# -----------------------------
+# Preprocess image
+# -----------------------------
+def preprocess_image(uploaded_file):
+
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    img = cv2.imdecode(file_bytes, 1)
+
+    img = cv2.resize(img,(224,224))
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    img = preprocess_input(img)
+
+    img = np.expand_dims(img, axis=0)
+
+    return img
+
+
+# -----------------------------
+# Feature extraction
+# -----------------------------
+def extract_features(uploaded_file):
+
+    img = preprocess_image(uploaded_file)
+
+    features = vgg_model.predict(img)
+
+    features = features.flatten().reshape(1,-1)
+
     return features
 
-# -----------------------------------
-# Routes
-# -----------------------------------
 
-@app.route("/")
-def home():
-    return "ASD Hand Gesture Model Running 🚀"
+# -----------------------------
+# Prediction
+# -----------------------------
+if st.button("Predict Emotion"):
 
-@app.route("/predict", methods=["POST"])
-def predict():
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"})
+    if face_file is None or hand_file is None:
+        st.warning("Please upload both images")
 
-    file = request.files["file"]
-    img = Image.open(file).convert("RGB")
+    else:
 
-    features = extract_features(img)
-    encoded = encoder.predict(features)
-    prediction = classifier.predict(encoded)
+        face_features = extract_features(face_file)
+        hand_features = extract_features(hand_file)
 
-    predicted_class = class_labels[np.argmax(prediction)]
+        fused_features = np.concatenate([face_features, hand_features], axis=1)
 
-    return jsonify({"prediction": str(predicted_class)})
+        fused_scaled = scaler.transform(fused_features)
 
-# -----------------------------------
-# Run App
-# -----------------------------------
+        encoded = autoencoder.predict(fused_scaled)
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+        prediction = classifier.predict(encoded)
+
+        predicted_index = np.argmax(prediction)
+
+        emotion = emotion_labels[predicted_index]
+
+        st.success(f"Predicted Emotion: {emotion}")
