@@ -6,12 +6,14 @@ import os
 import json
 import h5py
 import gdown
+
 import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras.models import Model
+from tensorflow.keras.applications import VGG19
+from tensorflow.keras.applications.vgg19 import preprocess_input
+from tensorflow.keras import layers
 from PIL import Image
-from keras.models import Model
-from keras.applications import VGG19
-from keras.applications.vgg19 import preprocess_input
-from keras import layers
 
 # ─────────────────────────────────────────────
 # PAGE CONFIG
@@ -107,8 +109,7 @@ def download_models():
 download_models()
 
 # ─────────────────────────────────────────────
-# PATCH H5 FILES — fixes Keras version mismatch
-# batch_shape → batch_input_shape
+# PATCH H5 FILES — fixes batch_shape mismatch
 # ─────────────────────────────────────────────
 def fix_batch_shape(config):
     if isinstance(config, dict):
@@ -143,14 +144,40 @@ def load_vgg():
 
 @st.cache_resource
 def load_pipeline():
-    # Patch both model files before loading
+    # Step 1 — patch h5 files for batch_shape fix
     patch_h5("encoder_model.h5")
     patch_h5("classifier_model.h5")
 
-    encoder = tf.keras.models.load_model("encoder_model.h5", compile=False)
-    clf     = tf.keras.models.load_model("classifier_model.h5", compile=False)
-    scaler  = joblib.load("scaler.pkl")
-    le      = joblib.load("label_encoder.pkl")
+    # Step 2 — custom DTypePolicy to handle Keras 3.x models
+    class DTypePolicy(tf.keras.mixed_precision.Policy):
+        def __init__(self, name=None, **kwargs):
+            if name is None:
+                name = 'float32'
+            try:
+                super().__init__(name)
+            except Exception:
+                pass
+            self._name = name
+
+        @classmethod
+        def from_config(cls, config):
+            return cls(name=config.get('name', 'float32'))
+
+        def get_config(self):
+            return {'name': self._name}
+
+    custom_objects = {
+        'DTypePolicy': DTypePolicy,
+        'Functional':  tf.keras.Model,
+    }
+
+    # Step 3 — load models inside custom object scope
+    with tf.keras.utils.custom_object_scope(custom_objects):
+        encoder = tf.keras.models.load_model("encoder_model.h5", compile=False)
+        clf     = tf.keras.models.load_model("classifier_model.h5", compile=False)
+
+    scaler = joblib.load("scaler.pkl")
+    le     = joblib.load("label_encoder.pkl")
     return encoder, clf, scaler, le
 
 # ─────────────────────────────────────────────
