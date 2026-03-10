@@ -4,11 +4,14 @@ import joblib
 import io
 import os
 import gdown
-import tensorflow as tf
 from PIL import Image
-from tensorflow.keras.models import load_model, Model
-from tensorflow.keras.applications import VGG19
-from tensorflow.keras.applications.vgg19 import preprocess_input
+
+# Use standalone keras imports — works without full TensorFlow install
+import keras
+from keras.models import load_model, Model
+from keras.applications import VGG19
+from keras.applications.vgg19 import preprocess_input
+from keras import layers
 
 # ─────────────────────────────────────────────
 # PAGE CONFIG
@@ -110,35 +113,34 @@ download_models()
 @st.cache_resource
 def load_vgg():
     base = VGG19(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
-    # GlobalAveragePooling2D — must match how you trained
-    out = tf.keras.layers.GlobalAveragePooling2D()(base.output)
-    m   = Model(inputs=base.input, outputs=out)
+    out  = layers.GlobalAveragePooling2D()(base.output)
+    m    = Model(inputs=base.input, outputs=out)
     m.trainable = False
     return m
 
 @st.cache_resource
 def load_pipeline():
-    encoder = load_model("encoder_model.h5")    # encoder only, not full autoencoder
+    encoder = load_model("encoder_model.h5")
     clf     = load_model("classifier_model.h5")
     scaler  = joblib.load("scaler.pkl")
-    le      = joblib.load("label_encoder.pkl")  # fixed filename
+    le      = joblib.load("label_encoder.pkl")
     return encoder, clf, scaler, le
 
 # ─────────────────────────────────────────────
-# FEATURE EXTRACTION — uses PIL, no cv2 needed
+# FEATURE EXTRACTION
 # ─────────────────────────────────────────────
 def extract_features(uploaded_file, vgg_model):
-    uploaded_file.seek(0)                              # reset file pointer before reading
+    uploaded_file.seek(0)
     img = Image.open(io.BytesIO(uploaded_file.read())).convert("RGB")
     img = img.resize((224, 224))
     arr = np.array(img, dtype=np.float32)
     arr = np.expand_dims(arr, axis=0)
-    arr = preprocess_input(arr)                        # VGG19 standard preprocessing
+    arr = preprocess_input(arr)
     features = vgg_model.predict(arr, verbose=0)
     return features.flatten()
 
 # ─────────────────────────────────────────────
-# UI — Title
+# UI
 # ─────────────────────────────────────────────
 st.markdown("""
 <div class="title-block">
@@ -149,9 +151,6 @@ st.markdown("""
 
 st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
-# FILE UPLOADERS
-# ─────────────────────────────────────────────
 col1, col2 = st.columns(2)
 
 with col1:
@@ -184,10 +183,8 @@ if hand_file and face_file:
                 face_feat = extract_features(face_file, vgg)
 
                 # Fusion order: [hand, face] — must match training
-                fused  = np.concatenate([hand_feat, face_feat]).reshape(1, -1)
-                scaled = scaler.transform(fused)
-
-                # Use encoder.predict(), NOT autoencoder.predict()
+                fused   = np.concatenate([hand_feat, face_feat]).reshape(1, -1)
+                scaled  = scaler.transform(fused)
                 encoded = encoder.predict(scaled, verbose=0)
                 probs   = clf.predict(encoded, verbose=0)[0]
 
