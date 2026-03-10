@@ -3,12 +3,12 @@ import numpy as np
 import joblib
 import io
 import os
+import json
+import h5py
 import gdown
+import tensorflow as tf
 from PIL import Image
-
-# Use standalone keras imports — works without full TensorFlow install
-import keras
-from keras.models import load_model, Model
+from keras.models import Model
 from keras.applications import VGG19
 from keras.applications.vgg19 import preprocess_input
 from keras import layers
@@ -90,7 +90,6 @@ EMOTION_COLOR = {
 
 # ─────────────────────────────────────────────
 # DOWNLOAD MODELS FROM GOOGLE DRIVE
-# Replace each YOUR_XXXXX_ID with your actual Google Drive file IDs
 # ─────────────────────────────────────────────
 MODEL_FILES = {
     "encoder_model.h5":    "https://drive.google.com/uc?id=1YR7c3Gb2-7E3MTWvhpPRnzO05J7kVR-1",
@@ -108,6 +107,30 @@ def download_models():
 download_models()
 
 # ─────────────────────────────────────────────
+# PATCH H5 FILES — fixes Keras version mismatch
+# batch_shape → batch_input_shape
+# ─────────────────────────────────────────────
+def fix_batch_shape(config):
+    if isinstance(config, dict):
+        if 'batch_shape' in config:
+            config['batch_input_shape'] = config.pop('batch_shape')
+        for v in config.values():
+            fix_batch_shape(v)
+    elif isinstance(config, list):
+        for item in config:
+            fix_batch_shape(item)
+
+def patch_h5(filepath):
+    try:
+        with h5py.File(filepath, 'r+') as f:
+            if 'model_config' in f.attrs:
+                model_config = json.loads(f.attrs['model_config'])
+                fix_batch_shape(model_config)
+                f.attrs['model_config'] = json.dumps(model_config)
+    except Exception as e:
+        st.warning(f"Could not patch {filepath}: {e}")
+
+# ─────────────────────────────────────────────
 # LOAD MODELS — cached so they load only once
 # ─────────────────────────────────────────────
 @st.cache_resource
@@ -120,8 +143,12 @@ def load_vgg():
 
 @st.cache_resource
 def load_pipeline():
-    encoder = load_model("encoder_model.h5")
-    clf     = load_model("classifier_model.h5")
+    # Patch both model files before loading
+    patch_h5("encoder_model.h5")
+    patch_h5("classifier_model.h5")
+
+    encoder = tf.keras.models.load_model("encoder_model.h5", compile=False)
+    clf     = tf.keras.models.load_model("classifier_model.h5", compile=False)
     scaler  = joblib.load("scaler.pkl")
     le      = joblib.load("label_encoder.pkl")
     return encoder, clf, scaler, le
@@ -239,4 +266,3 @@ st.markdown("""
     <span class="info-pill">6 Emotion Classes</span>
 </div>
 """, unsafe_allow_html=True)
-
