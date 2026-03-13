@@ -131,9 +131,9 @@ Confidence score
 
 **https://emotion-recognition-for-asd-children.streamlit.app/**
 
-**Technologies Used**Python,Deep Learning,TensorFlow,Keras,VGG-19 (Transfer Learning),Sparse Autoencoder
+**Technologies Used**:Python,Deep Learning,TensorFlow,Keras,VGG-19 (Transfer Learning),Sparse Autoencoder
 
-**Libraries**NumPy,Scikit-learn,Model
+**Libraries**:NumPy,Scikit-learn,Model
 
 **Deployment**
 
