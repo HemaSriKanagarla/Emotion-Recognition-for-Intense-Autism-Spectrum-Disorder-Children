@@ -95,10 +95,10 @@ Normalized before feature extraction.
 
 **Advantages:**
 
--Higher accuracy
--Reduced feature redundancy
--Better emotional representation
--Improved generalization
+- Higher accuracy
+- Reduced feature redundancy
+- Better emotional representation
+- Improved generalization
 
 **Deployment**
 
